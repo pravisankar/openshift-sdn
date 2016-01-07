@@ -16,7 +16,6 @@ import (
 	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/kubernetes/pkg/labels"
 	pconfig "k8s.io/kubernetes/pkg/proxy/config"
-	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/types"
 	"k8s.io/kubernetes/pkg/watch"
 
@@ -29,8 +28,8 @@ import (
 )
 
 type Registry struct {
-	oClient osclient.Interface
-	kClient kclient.Interface
+	oClient *osclient.Client
+	kClient *kclient.Client
 
 	baseEndpointsHandler pconfig.EndpointsConfigHandler
 	serviceNetwork       *net.IPNet
@@ -94,7 +93,7 @@ func (registry *Registry) CreateSubnet(nodeName string, sub *osdnapi.Subnet) err
 }
 
 func (registry *Registry) WatchSubnets(receiver chan<- *osdnapi.SubnetEvent, ready chan<- bool, start <-chan string, stop <-chan bool) error {
-	eventQueue, startVersion := registry.createAndRunEventQueue("HostSubnet", ready, start)
+	eventQueue, startVersion := registry.createAndRunEventQueue("HostSubnets", ready, start)
 
 	checkCondition := true
 	for {
@@ -145,7 +144,7 @@ func (registry *Registry) GetPods() ([]osdnapi.Pod, string, error) {
 }
 
 func (registry *Registry) WatchPods(ready chan<- bool, start <-chan string, stop <-chan bool) error {
-	eventQueue, startVersion := registry.createAndRunEventQueue("Pod", ready, start)
+	eventQueue, startVersion := registry.createAndRunEventQueue("Pods", ready, start)
 
 	checkCondition := true
 	for {
@@ -220,7 +219,7 @@ func (registry *Registry) getNodeAddressMap() (map[types.UID]string, error) {
 }
 
 func (registry *Registry) WatchNodes(receiver chan<- *osdnapi.NodeEvent, ready chan<- bool, start <-chan string, stop <-chan bool) error {
-	eventQueue, startVersion := registry.createAndRunEventQueue("Node", ready, start)
+	eventQueue, startVersion := registry.createAndRunEventQueue("Nodes", ready, start)
 
 	nodeAddressMap, err := registry.getNodeAddressMap()
 	if err != nil {
@@ -321,7 +320,7 @@ func (registry *Registry) GetNamespaces() ([]string, string, error) {
 }
 
 func (registry *Registry) WatchNamespaces(receiver chan<- *osdnapi.NamespaceEvent, ready chan<- bool, start <-chan string, stop <-chan bool) error {
-	eventQueue, startVersion := registry.createAndRunEventQueue("Namespace", ready, start)
+	eventQueue, startVersion := registry.createAndRunEventQueue("Namespaces", ready, start)
 
 	checkCondition := true
 	for {
@@ -343,7 +342,7 @@ func (registry *Registry) WatchNamespaces(receiver chan<- *osdnapi.NamespaceEven
 }
 
 func (registry *Registry) WatchNetNamespaces(receiver chan<- *osdnapi.NetNamespaceEvent, ready chan<- bool, start <-chan string, stop <-chan bool) error {
-	eventQueue, startVersion := registry.createAndRunEventQueue("NetNamespace", ready, start)
+	eventQueue, startVersion := registry.createAndRunEventQueue("NetNamespaces", ready, start)
 
 	checkCondition := true
 	for {
@@ -423,7 +422,7 @@ func (registry *Registry) getServices(namespace string) ([]osdnapi.Service, stri
 }
 
 func (registry *Registry) WatchServices(receiver chan<- *osdnapi.ServiceEvent, ready chan<- bool, start <-chan string, stop <-chan bool) error {
-	eventQueue, startVersion := registry.createAndRunEventQueue("Service", ready, start)
+	eventQueue, startVersion := registry.createAndRunEventQueue("Services", ready, start)
 
 	checkCondition := true
 	for {
@@ -469,61 +468,34 @@ func newSDNService(kServ *kapi.Service) osdnapi.Service {
 
 // Run event queue for the given resource
 func (registry *Registry) runEventQueue(resourceName string) (*oscache.EventQueue, *cache.Reflector) {
-	eventQueue := oscache.NewEventQueue(cache.MetaNamespaceKeyFunc)
-	lw := &cache.ListWatch{}
+	var client cache.Getter
 	var expectedType interface{}
+
 	switch strings.ToLower(resourceName) {
-	case "hostsubnet":
+	case "hostsubnets":
 		expectedType = &originapi.HostSubnet{}
-		lw.ListFunc = func() (runtime.Object, error) {
-			return registry.oClient.HostSubnets().List()
-		}
-		lw.WatchFunc = func(resourceVersion string) (watch.Interface, error) {
-			return registry.oClient.HostSubnets().Watch(resourceVersion)
-		}
-	case "node":
-		expectedType = &kapi.Node{}
-		lw.ListFunc = func() (runtime.Object, error) {
-			return registry.kClient.Nodes().List(labels.Everything(), fields.Everything())
-		}
-		lw.WatchFunc = func(resourceVersion string) (watch.Interface, error) {
-			return registry.kClient.Nodes().Watch(labels.Everything(), fields.Everything(), resourceVersion)
-		}
-	case "namespace":
-		expectedType = &kapi.Namespace{}
-		lw.ListFunc = func() (runtime.Object, error) {
-			return registry.kClient.Namespaces().List(labels.Everything(), fields.Everything())
-		}
-		lw.WatchFunc = func(resourceVersion string) (watch.Interface, error) {
-			return registry.kClient.Namespaces().Watch(labels.Everything(), fields.Everything(), resourceVersion)
-		}
-	case "netnamespace":
+		client = registry.oClient
+	case "netnamespaces":
 		expectedType = &originapi.NetNamespace{}
-		lw.ListFunc = func() (runtime.Object, error) {
-			return registry.oClient.NetNamespaces().List()
-		}
-		lw.WatchFunc = func(resourceVersion string) (watch.Interface, error) {
-			return registry.oClient.NetNamespaces().Watch(resourceVersion)
-		}
-	case "service":
+		client = registry.oClient
+	case "nodes":
+		expectedType = &kapi.Node{}
+		client = registry.kClient
+	case "namespaces":
+		expectedType = &kapi.Namespace{}
+		client = registry.kClient
+	case "services":
 		expectedType = &kapi.Service{}
-		lw.ListFunc = func() (runtime.Object, error) {
-			return registry.kClient.Services(kapi.NamespaceAll).List(labels.Everything(), fields.Everything())
-		}
-		lw.WatchFunc = func(resourceVersion string) (watch.Interface, error) {
-			return registry.kClient.Services(kapi.NamespaceAll).Watch(labels.Everything(), fields.Everything(), resourceVersion)
-		}
-	case "pod":
+		client = registry.kClient
+	case "pods":
 		expectedType = &kapi.Pod{}
-		lw.ListFunc = func() (runtime.Object, error) {
-			return registry.kClient.Pods(kapi.NamespaceAll).List(labels.Everything(), fields.Everything())
-		}
-		lw.WatchFunc = func(resourceVersion string) (watch.Interface, error) {
-			return registry.kClient.Pods(kapi.NamespaceAll).Watch(labels.Everything(), fields.Everything(), resourceVersion)
-		}
+		client = registry.kClient
 	default:
 		log.Fatalf("Unknown resource %s during initialization of event queue", resourceName)
 	}
+
+	lw := cache.NewListWatchFromClient(client, strings.ToLower(resourceName), kapi.NamespaceAll, fields.Everything())
+	eventQueue := oscache.NewEventQueue(cache.MetaNamespaceKeyFunc)
 	reflector := cache.NewReflector(lw, expectedType, eventQueue, 4*time.Minute)
 	reflector.Run()
 	return eventQueue, reflector
