@@ -264,18 +264,6 @@ func (registry *Registry) GetServicesNetworkCIDR() (string, error) {
 	return cn.ServiceNetwork, err
 }
 
-func (registry *Registry) GetNamespaces() ([]string, error) {
-	namespaceList, err := registry.kClient.Namespaces().List(labels.Everything(), fields.Everything())
-	if err != nil {
-		return nil, err
-	}
-	namespaces := make([]string, 0, len(namespaceList.Items))
-	for _, ns := range namespaceList.Items {
-		namespaces = append(namespaces, ns.Name)
-	}
-	return namespaces, nil
-}
-
 func (registry *Registry) WatchNamespaces(receiver chan<- *osdnapi.NamespaceEvent) error {
 	eventQueue := registry.runEventQueue("Namespaces")
 
@@ -287,12 +275,10 @@ func (registry *Registry) WatchNamespaces(receiver chan<- *osdnapi.NamespaceEven
 		ns := obj.(*kapi.Namespace)
 
 		switch eventType {
-		case watch.Added:
+		case watch.Added, watch.Modified:
 			receiver <- &osdnapi.NamespaceEvent{Type: osdnapi.Added, Name: ns.ObjectMeta.Name}
 		case watch.Deleted:
 			receiver <- &osdnapi.NamespaceEvent{Type: osdnapi.Deleted, Name: ns.ObjectMeta.Name}
-		case watch.Modified:
-			// Ignore, we don't need to update SDN in case of namespace updates
 		}
 	}
 }
@@ -314,19 +300,6 @@ func (registry *Registry) WatchNetNamespaces(receiver chan<- *osdnapi.NetNamespa
 			receiver <- &osdnapi.NetNamespaceEvent{Type: osdnapi.Deleted, Name: netns.NetName}
 		}
 	}
-}
-
-func (registry *Registry) GetNetNamespaces() ([]osdnapi.NetNamespace, error) {
-	netNamespaceList, err := registry.oClient.NetNamespaces().List()
-	if err != nil {
-		return nil, err
-	}
-	// convert originapi.NetNamespace to osdnapi.NetNamespace
-	nsList := make([]osdnapi.NetNamespace, 0, len(netNamespaceList.Items))
-	for _, netns := range netNamespaceList.Items {
-		nsList = append(nsList, osdnapi.NetNamespace{Name: netns.Name, NetID: *netns.NetID})
-	}
-	return nsList, nil
 }
 
 func (registry *Registry) GetNetNamespace(name string) (osdnapi.NetNamespace, error) {

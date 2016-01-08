@@ -9,31 +9,7 @@ import (
 )
 
 func (oc *OvsController) VnidStartMaster() error {
-	namespaces, err := oc.Registry.GetNamespaces()
-	if err != nil {
-		return err
-	}
-	// Handle existing namespaces without corresponding netnamespaces
-	netnsList, err := oc.Registry.GetNetNamespaces()
-	if err != nil {
-		return err
-	}
-	netNamespaceMap := make(map[string]bool, len(netnsList))
-	for _, netns := range netnsList {
-		netNamespaceMap[netns.Name] = true
-	}
-
-	for _, nsName := range namespaces {
-		if !netNamespaceMap[nsName] {
-			err = oc.Registry.CreateNetNamespace(nsName)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
 	go watchNamespaces(oc)
-
 	return nil
 }
 
@@ -44,7 +20,11 @@ func watchNamespaces(oc *OvsController) {
 		ev := <-nsevent
 		switch ev.Type {
 		case api.Added:
-			err := oc.Registry.CreateNetNamespace(ev.Name)
+			_, err := oc.Registry.GetNetNamespace(ev.Name)
+			if err == nil {
+				continue
+			}
+			err = oc.Registry.CreateNetNamespace(ev.Name)
 			if err != nil {
 				log.Errorf("Error creating NetNamespace: %v", err)
 				continue
