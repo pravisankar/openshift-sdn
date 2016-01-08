@@ -34,8 +34,7 @@ func (oc *OvsController) SubnetStartMaster(clusterNetworkCIDR string, clusterBit
 func (oc *OvsController) addNode(nodeName string, nodeIP string) error {
 	sn, err := oc.subnetAllocator.GetNetwork()
 	if err != nil {
-		log.Errorf("Error creating network for node %s.", nodeName)
-		return err
+		return fmt.Errorf("Error creating network for node %s", nodeName)
 	}
 
 	if nodeIP == "" || nodeIP == "127.0.0.1" {
@@ -48,8 +47,7 @@ func (oc *OvsController) addNode(nodeName string, nodeIP string) error {
 	}
 	err = oc.Registry.CreateSubnet(nodeName, subnet)
 	if err != nil {
-		log.Errorf("Error writing subnet to etcd for node %s: %v", nodeName, sn)
-		return err
+		return fmt.Errorf("Error writing subnet to etcd for node %s: %v", nodeName, sn)
 	}
 	return nil
 }
@@ -57,13 +55,11 @@ func (oc *OvsController) addNode(nodeName string, nodeIP string) error {
 func (oc *OvsController) deleteNode(nodeName string) error {
 	sub, err := oc.Registry.GetSubnet(nodeName)
 	if err != nil {
-		log.Errorf("Error fetching subnet for node %s for delete operation.", nodeName)
-		return err
+		return fmt.Errorf("Error fetching subnet for node %s for delete operation.", nodeName)
 	}
 	_, ipnet, err := net.ParseCIDR(sub.SubnetCIDR)
 	if err != nil {
-		log.Errorf("Error parsing subnet for node %s for deletion: %s", nodeName, sub.SubnetCIDR)
-		return err
+		return fmt.Errorf("Error parsing subnet for node %s for deletion: %s", nodeName, sub.SubnetCIDR)
 	}
 	oc.subnetAllocator.ReleaseNetwork(ipnet)
 	return oc.Registry.DeleteSubnet(nodeName)
@@ -129,8 +125,11 @@ func watchNodes(oc *OvsController) {
 			sub, err := oc.Registry.GetSubnet(ev.Node.Name)
 			if err != nil {
 				// subnet does not exist already
-				//TODO(ravips): catch error here?
-				oc.addNode(ev.Node.Name, ev.Node.IP)
+				err = oc.addNode(ev.Node.Name, ev.Node.IP)
+				if err != nil {
+					log.Errorf("Error creating subnet for node %s, error: %s", ev.Node.Name, err)
+					continue
+				}
 			} else {
 				// Current node IP is obtained from event, ev.NodeIP to
 				// avoid cached/stale IP lookup by net.LookupIP()
@@ -149,8 +148,11 @@ func watchNodes(oc *OvsController) {
 				}
 			}
 		case api.Deleted:
-			//TODO(ravips): catch error here?
-			oc.deleteNode(ev.Node.Name)
+			err := oc.deleteNode(ev.Node.Name)
+			if err != nil {
+				log.Errorf("Error deleting subnet for node %s, error: %s", ev.Node.Name, err)
+				continue
+			}
 		}
 	}
 }
