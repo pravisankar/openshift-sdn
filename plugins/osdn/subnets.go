@@ -120,66 +120,53 @@ func (oc *OvsController) initSelfSubnet() error {
 }
 
 func watchNodes(oc *OvsController) {
-	stop := make(chan bool)
 	nodeEvent := make(chan *api.NodeEvent)
-	go oc.Registry.WatchNodes(nodeEvent, stop)
+	go oc.Registry.WatchNodes(nodeEvent)
 	for {
-		select {
-		case ev := <-nodeEvent:
-			switch ev.Type {
-			case api.Added:
-				sub, err := oc.Registry.GetSubnet(ev.Node.Name)
-				if err != nil {
-					// subnet does not exist already
-					//TODO(ravips): catch error here?
-					oc.addNode(ev.Node.Name, ev.Node.IP)
-				} else {
-					// Current node IP is obtained from event, ev.NodeIP to
-					// avoid cached/stale IP lookup by net.LookupIP()
-					if sub.NodeIP != ev.Node.IP {
-						err = oc.Registry.DeleteSubnet(ev.Node.Name)
-						if err != nil {
-							log.Errorf("Error deleting subnet for node %s, old ip %s", ev.Node.Name, sub.NodeIP)
-							continue
-						}
-						sub.NodeIP = ev.Node.IP
-						err = oc.Registry.CreateSubnet(ev.Node.Name, sub)
-						if err != nil {
-							log.Errorf("Error creating subnet for node %s, ip %s", ev.Node.Name, sub.NodeIP)
-							continue
-						}
+		ev := <-nodeEvent
+		switch ev.Type {
+		case api.Added:
+			sub, err := oc.Registry.GetSubnet(ev.Node.Name)
+			if err != nil {
+				// subnet does not exist already
+				//TODO(ravips): catch error here?
+				oc.addNode(ev.Node.Name, ev.Node.IP)
+			} else {
+				// Current node IP is obtained from event, ev.NodeIP to
+				// avoid cached/stale IP lookup by net.LookupIP()
+				if sub.NodeIP != ev.Node.IP {
+					err = oc.Registry.DeleteSubnet(ev.Node.Name)
+					if err != nil {
+						log.Errorf("Error deleting subnet for node %s, old ip %s", ev.Node.Name, sub.NodeIP)
+						continue
+					}
+					sub.NodeIP = ev.Node.IP
+					err = oc.Registry.CreateSubnet(ev.Node.Name, sub)
+					if err != nil {
+						log.Errorf("Error creating subnet for node %s, ip %s", ev.Node.Name, sub.NodeIP)
+						continue
 					}
 				}
-			case api.Deleted:
-				//TODO(ravips): catch error here?
-				oc.deleteNode(ev.Node.Name)
 			}
-		case <-oc.sig:
-			log.Error("Signal received. Stopping watching of nodes.")
-			stop <- true
-			return
+		case api.Deleted:
+			//TODO(ravips): catch error here?
+			oc.deleteNode(ev.Node.Name)
 		}
 	}
 }
 
 func watchSubnets(oc *OvsController) {
-	stop := make(chan bool)
 	clusterEvent := make(chan *api.SubnetEvent)
-	go oc.Registry.WatchSubnets(clusterEvent, stop)
+	go oc.Registry.WatchSubnets(clusterEvent)
 	for {
-		select {
-		case ev := <-clusterEvent:
-			switch ev.Type {
-			case api.Added:
-				// add openflow rules
-				oc.flowController.AddOFRules(ev.Subnet.NodeIP, ev.Subnet.SubnetCIDR, oc.localIP)
-			case api.Deleted:
-				// delete openflow rules meant for the node
-				oc.flowController.DelOFRules(ev.Subnet.NodeIP, oc.localIP)
-			}
-		case <-oc.sig:
-			stop <- true
-			return
+		ev := <-clusterEvent
+		switch ev.Type {
+		case api.Added:
+			// add openflow rules
+			oc.flowController.AddOFRules(ev.Subnet.NodeIP, ev.Subnet.SubnetCIDR, oc.localIP)
+		case api.Deleted:
+			// delete openflow rules meant for the node
+			oc.flowController.DelOFRules(ev.Subnet.NodeIP, oc.localIP)
 		}
 	}
 }

@@ -89,7 +89,7 @@ func (registry *Registry) CreateSubnet(nodeName string, sub *osdnapi.Subnet) err
 	return err
 }
 
-func (registry *Registry) WatchSubnets(receiver chan<- *osdnapi.SubnetEvent, stop <-chan bool) error {
+func (registry *Registry) WatchSubnets(receiver chan<- *osdnapi.SubnetEvent) error {
 	eventQueue := registry.runEventQueue("HostSubnets")
 
 	for {
@@ -139,7 +139,7 @@ func (registry *Registry) GetPods() ([]osdnapi.Pod, string, error) {
 	return oPodList, kPodList.ListMeta.ResourceVersion, nil
 }
 
-func (registry *Registry) WatchPods(stop <-chan bool) error {
+func (registry *Registry) WatchPods() error {
 	eventQueue := registry.runEventQueue("Pods")
 
 	for {
@@ -213,7 +213,7 @@ func (registry *Registry) getNodeAddressMap() (map[types.UID]string, error) {
 	return nodeAddressMap, nil
 }
 
-func (registry *Registry) WatchNodes(receiver chan<- *osdnapi.NodeEvent, stop <-chan bool) error {
+func (registry *Registry) WatchNodes(receiver chan<- *osdnapi.NodeEvent) error {
 	eventQueue := registry.runEventQueue("Nodes")
 
 	nodeAddressMap, err := registry.getNodeAddressMap()
@@ -313,7 +313,7 @@ func (registry *Registry) GetNamespaces() ([]string, string, error) {
 	return namespaces, namespaceList.ListMeta.ResourceVersion, nil
 }
 
-func (registry *Registry) WatchNamespaces(receiver chan<- *osdnapi.NamespaceEvent, stop <-chan bool) error {
+func (registry *Registry) WatchNamespaces(receiver chan<- *osdnapi.NamespaceEvent) error {
 	eventQueue := registry.runEventQueue("Namespaces")
 
 	for {
@@ -334,7 +334,7 @@ func (registry *Registry) WatchNamespaces(receiver chan<- *osdnapi.NamespaceEven
 	}
 }
 
-func (registry *Registry) WatchNetNamespaces(receiver chan<- *osdnapi.NetNamespaceEvent, stop <-chan bool) error {
+func (registry *Registry) WatchNetNamespaces(receiver chan<- *osdnapi.NetNamespaceEvent) error {
 	eventQueue := registry.runEventQueue("NetNamespaces")
 
 	for {
@@ -413,7 +413,7 @@ func (registry *Registry) getServices(namespace string) ([]osdnapi.Service, stri
 	return oServList, kServList.ListMeta.ResourceVersion, nil
 }
 
-func (registry *Registry) WatchServices(receiver chan<- *osdnapi.ServiceEvent, stop <-chan bool) error {
+func (registry *Registry) WatchServices(receiver chan<- *osdnapi.ServiceEvent) error {
 	eventQueue := registry.runEventQueue("Services")
 
 	for {

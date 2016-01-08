@@ -31,7 +31,6 @@ type OvsController struct {
 	localSubnet     *api.Subnet
 	hostName        string
 	subnetAllocator *netutils.SubnetAllocator
-	sig             chan struct{}
 	podNetworkReady chan struct{}
 	flowController  FlowController
 	VNIDMap         map[string]uint
@@ -73,7 +72,6 @@ func (oc *OvsController) BaseInit(registry *Registry, flowController FlowControl
 	oc.localIP = selfIP
 	oc.hostName = hostname
 	oc.VNIDMap = make(map[string]uint)
-	oc.sig = make(chan struct{})
 	oc.podNetworkReady = make(chan struct{})
 	oc.services = make(map[string]api.Service)
 
@@ -234,10 +232,6 @@ func (oc *OvsController) WaitForPodNetworkReady() error {
 		}
 	}
 	return fmt.Errorf("SDN pod network is not ready(timeout: 2 mins)")
-}
-
-func (oc *OvsController) Stop() {
-	close(oc.sig)
 }
 
 type FirewallRule struct {
