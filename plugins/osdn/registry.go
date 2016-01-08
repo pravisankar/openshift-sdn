@@ -2,14 +2,11 @@ package osdn
 
 import (
 	"net"
-	"strconv"
 	"strings"
-	"time"
 
 	log "github.com/golang/glog"
 
 	kapi "k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/meta"
 	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/client/cache"
 	kclient "k8s.io/kubernetes/pkg/client/unversioned"
@@ -92,12 +89,11 @@ func (registry *Registry) CreateSubnet(nodeName string, sub *osdnapi.Subnet) err
 	return err
 }
 
-func (registry *Registry) WatchSubnets(receiver chan<- *osdnapi.SubnetEvent, ready chan<- bool, start <-chan string, stop <-chan bool) error {
-	eventQueue, startVersion := registry.createAndRunEventQueue("HostSubnets", ready, start)
+func (registry *Registry) WatchSubnets(receiver chan<- *osdnapi.SubnetEvent, stop <-chan bool) error {
+	eventQueue := registry.runEventQueue("HostSubnets")
 
-	checkCondition := true
 	for {
-		eventType, obj, err := getEvent(eventQueue, startVersion, &checkCondition)
+		eventType, obj, err := eventQueue.Pop()
 		if err != nil {
 			return err
 		}
@@ -143,12 +139,11 @@ func (registry *Registry) GetPods() ([]osdnapi.Pod, string, error) {
 	return oPodList, kPodList.ListMeta.ResourceVersion, nil
 }
 
-func (registry *Registry) WatchPods(ready chan<- bool, start <-chan string, stop <-chan bool) error {
-	eventQueue, startVersion := registry.createAndRunEventQueue("Pods", ready, start)
+func (registry *Registry) WatchPods(stop <-chan bool) error {
+	eventQueue := registry.runEventQueue("Pods")
 
-	checkCondition := true
 	for {
-		eventType, obj, err := getEvent(eventQueue, startVersion, &checkCondition)
+		eventType, obj, err := eventQueue.Pop()
 		if err != nil {
 			return err
 		}
@@ -218,17 +213,16 @@ func (registry *Registry) getNodeAddressMap() (map[types.UID]string, error) {
 	return nodeAddressMap, nil
 }
 
-func (registry *Registry) WatchNodes(receiver chan<- *osdnapi.NodeEvent, ready chan<- bool, start <-chan string, stop <-chan bool) error {
-	eventQueue, startVersion := registry.createAndRunEventQueue("Nodes", ready, start)
+func (registry *Registry) WatchNodes(receiver chan<- *osdnapi.NodeEvent, stop <-chan bool) error {
+	eventQueue := registry.runEventQueue("Nodes")
 
 	nodeAddressMap, err := registry.getNodeAddressMap()
 	if err != nil {
 		return err
 	}
 
-	checkCondition := true
 	for {
-		eventType, obj, err := getEvent(eventQueue, startVersion, &checkCondition)
+		eventType, obj, err := eventQueue.Pop()
 		if err != nil {
 			return err
 		}
@@ -319,12 +313,11 @@ func (registry *Registry) GetNamespaces() ([]string, string, error) {
 	return namespaces, namespaceList.ListMeta.ResourceVersion, nil
 }
 
-func (registry *Registry) WatchNamespaces(receiver chan<- *osdnapi.NamespaceEvent, ready chan<- bool, start <-chan string, stop <-chan bool) error {
-	eventQueue, startVersion := registry.createAndRunEventQueue("Namespaces", ready, start)
+func (registry *Registry) WatchNamespaces(receiver chan<- *osdnapi.NamespaceEvent, stop <-chan bool) error {
+	eventQueue := registry.runEventQueue("Namespaces")
 
-	checkCondition := true
 	for {
-		eventType, obj, err := getEvent(eventQueue, startVersion, &checkCondition)
+		eventType, obj, err := eventQueue.Pop()
 		if err != nil {
 			return err
 		}
@@ -341,12 +334,11 @@ func (registry *Registry) WatchNamespaces(receiver chan<- *osdnapi.NamespaceEven
 	}
 }
 
-func (registry *Registry) WatchNetNamespaces(receiver chan<- *osdnapi.NetNamespaceEvent, ready chan<- bool, start <-chan string, stop <-chan bool) error {
-	eventQueue, startVersion := registry.createAndRunEventQueue("NetNamespaces", ready, start)
+func (registry *Registry) WatchNetNamespaces(receiver chan<- *osdnapi.NetNamespaceEvent, stop <-chan bool) error {
+	eventQueue := registry.runEventQueue("NetNamespaces")
 
-	checkCondition := true
 	for {
-		eventType, obj, err := getEvent(eventQueue, startVersion, &checkCondition)
+		eventType, obj, err := eventQueue.Pop()
 		if err != nil {
 			return err
 		}
@@ -421,12 +413,11 @@ func (registry *Registry) getServices(namespace string) ([]osdnapi.Service, stri
 	return oServList, kServList.ListMeta.ResourceVersion, nil
 }
 
-func (registry *Registry) WatchServices(receiver chan<- *osdnapi.ServiceEvent, ready chan<- bool, start <-chan string, stop <-chan bool) error {
-	eventQueue, startVersion := registry.createAndRunEventQueue("Services", ready, start)
+func (registry *Registry) WatchServices(receiver chan<- *osdnapi.ServiceEvent, stop <-chan bool) error {
+	eventQueue := registry.runEventQueue("Services")
 
-	checkCondition := true
 	for {
-		eventType, obj, err := getEvent(eventQueue, startVersion, &checkCondition)
+		eventType, obj, err := eventQueue.Pop()
 		if err != nil {
 			return err
 		}
@@ -467,7 +458,7 @@ func newSDNService(kServ *kapi.Service) osdnapi.Service {
 }
 
 // Run event queue for the given resource
-func (registry *Registry) runEventQueue(resourceName string) (*oscache.EventQueue, *cache.Reflector) {
+func (registry *Registry) runEventQueue(resourceName string) *oscache.EventQueue {
 	var client cache.Getter
 	var expectedType interface{}
 
@@ -496,87 +487,8 @@ func (registry *Registry) runEventQueue(resourceName string) (*oscache.EventQueu
 
 	lw := cache.NewListWatchFromClient(client, strings.ToLower(resourceName), kapi.NamespaceAll, fields.Everything())
 	eventQueue := oscache.NewEventQueue(cache.MetaNamespaceKeyFunc)
-	reflector := cache.NewReflector(lw, expectedType, eventQueue, 0)
-	reflector.Run()
-	return eventQueue, reflector
-}
-
-// Ensures given event queue is ready for watching new changes
-// and unblock other end of the ready channel
-func sendWatchReadiness(reflector *cache.Reflector, ready chan<- bool) {
-	// timeout: 1min
-	retries := 120
-	retryInterval := 500 * time.Millisecond
-	// Try every retryInterval and bail-out if it exceeds max retries
-	for i := 0; i < retries; i++ {
-		// Reflector does list and watch of the resource
-		// when listing of the resource is done, resourceVersion will be populated
-		// and the event queue will be ready to watch any new changes
-		version := reflector.LastSyncResourceVersion()
-		if len(version) > 0 {
-			ready <- true
-			return
-		}
-		time.Sleep(retryInterval)
-	}
-	log.Fatalf("SDN event queue is not ready for watching new changes(timeout: 1min)")
-}
-
-// Get resource version from start channel
-// Watch interface for the resource will process any item after this version
-func getStartVersion(start <-chan string, resourceName string) uint64 {
-	var version uint64
-	var err error
-
-	timeout := time.Minute
-	select {
-	case rv := <-start:
-		version, err = strconv.ParseUint(rv, 10, 64)
-		if err != nil {
-			log.Fatalf("Invalid start version %s for %s, error: %v", rv, resourceName, err)
-		}
-	case <-time.After(timeout):
-		log.Fatalf("Error fetching resource version for %s (timeout: %v)", resourceName, timeout)
-	}
-	return version
-}
-
-// createAndRunEventQueue will create and run event queue and also returns start version for watching any new changes
-func (registry *Registry) createAndRunEventQueue(resourceName string, ready chan<- bool, start <-chan string) (*oscache.EventQueue, uint64) {
-	eventQueue, reflector := registry.runEventQueue(resourceName)
-	sendWatchReadiness(reflector, ready)
-	startVersion := getStartVersion(start, resourceName)
-	return eventQueue, startVersion
-}
-
-// getEvent returns next item in the event queue which satisfies item version greater than given start version
-// checkCondition is an optimization that ignores version check when it is not needed
-func getEvent(eventQueue *oscache.EventQueue, startVersion uint64, checkCondition *bool) (watch.EventType, interface{}, error) {
-	if *checkCondition {
-		// Ignore all events with version <= given start version
-		for {
-			eventType, obj, err := eventQueue.Pop()
-			if err != nil {
-				return watch.Error, nil, err
-			}
-			accessor, err := meta.Accessor(obj)
-			if err != nil {
-				return watch.Error, nil, err
-			}
-			currentVersion, err := strconv.ParseUint(accessor.ResourceVersion(), 10, 64)
-			if err != nil {
-				return watch.Error, nil, err
-			}
-			if currentVersion <= startVersion {
-				log.V(5).Infof("Ignoring %s with version %d, start version: %d", accessor.Name(), currentVersion, startVersion)
-				continue
-			}
-			*checkCondition = false
-			return eventType, obj, nil
-		}
-	} else {
-		return eventQueue.Pop()
-	}
+	cache.NewReflector(lw, expectedType, eventQueue, 0).Run()
+	return eventQueue
 }
 
 // FilteringEndpointsConfigHandler implementation

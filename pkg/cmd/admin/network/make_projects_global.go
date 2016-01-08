@@ -10,7 +10,6 @@ import (
 	kerrors "k8s.io/kubernetes/pkg/util/errors"
 
 	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
-	"github.com/openshift/origin/pkg/sdn/registry/netnamespace/vnid"
 )
 
 const (

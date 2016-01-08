@@ -27,34 +27,7 @@ func (oc *OvsController) SubnetStartMaster(clusterNetworkCIDR string, clusterBit
 		return err
 	}
 
-	getNodes := func(registry *Registry) (interface{}, string, error) {
-		return registry.GetNodes()
-	}
-	result, err := oc.watchAndGetResource("Node", watchNodes, getNodes)
-	if err != nil {
-		return err
-	}
-	nodes := result.([]api.Node)
-	err = oc.serveExistingNodes(nodes)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (oc *OvsController) serveExistingNodes(nodes []api.Node) error {
-	for _, node := range nodes {
-		_, err := oc.Registry.GetSubnet(node.Name)
-		if err == nil {
-			// subnet already exists, continue
-			continue
-		}
-		err = oc.addNode(node.Name, node.IP)
-		if err != nil {
-			return err
-		}
-	}
+	go watchNodes(oc)
 	return nil
 }
 
@@ -118,18 +91,7 @@ func (oc *OvsController) SubnetStartNode(mtu uint) error {
 		return err
 	}
 
-	getSubnets := func(registry *Registry) (interface{}, string, error) {
-		return registry.GetSubnets()
-	}
-	result, err := oc.watchAndGetResource("HostSubnet", watchSubnets, getSubnets)
-	if err != nil {
-		return err
-	}
-	subnets := result.([]api.Subnet)
-	for _, s := range subnets {
-		oc.flowController.AddOFRules(s.NodeIP, s.SubnetCIDR, oc.localIP)
-	}
-
+	go watchSubnets(oc)
 	return nil
 }
 
@@ -157,10 +119,10 @@ func (oc *OvsController) initSelfSubnet() error {
 	return nil
 }
 
-func watchNodes(oc *OvsController, ready chan<- bool, start <-chan string) {
+func watchNodes(oc *OvsController) {
 	stop := make(chan bool)
 	nodeEvent := make(chan *api.NodeEvent)
-	go oc.Registry.WatchNodes(nodeEvent, ready, start, stop)
+	go oc.Registry.WatchNodes(nodeEvent, stop)
 	for {
 		select {
 		case ev := <-nodeEvent:
@@ -169,6 +131,7 @@ func watchNodes(oc *OvsController, ready chan<- bool, start <-chan string) {
 				sub, err := oc.Registry.GetSubnet(ev.Node.Name)
 				if err != nil {
 					// subnet does not exist already
+					//TODO(ravips): catch error here?
 					oc.addNode(ev.Node.Name, ev.Node.IP)
 				} else {
 					// Current node IP is obtained from event, ev.NodeIP to
@@ -188,6 +151,7 @@ func watchNodes(oc *OvsController, ready chan<- bool, start <-chan string) {
 					}
 				}
 			case api.Deleted:
+				//TODO(ravips): catch error here?
 				oc.deleteNode(ev.Node.Name)
 			}
 		case <-oc.sig:
@@ -198,10 +162,10 @@ func watchNodes(oc *OvsController, ready chan<- bool, start <-chan string) {
 	}
 }
 
-func watchSubnets(oc *OvsController, ready chan<- bool, start <-chan string) {
+func watchSubnets(oc *OvsController) {
 	stop := make(chan bool)
 	clusterEvent := make(chan *api.SubnetEvent)
-	go oc.Registry.WatchSubnets(clusterEvent, ready, start, stop)
+	go oc.Registry.WatchSubnets(clusterEvent, stop)
 	for {
 		select {
 		case ev := <-clusterEvent:

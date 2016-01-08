@@ -1,8 +1,6 @@
 package osdn
 
 import (
-	"fmt"
-
 	log "github.com/golang/glog"
 
 	"github.com/openshift/openshift-sdn/plugins/osdn/api"
@@ -11,15 +9,10 @@ import (
 )
 
 func (oc *OvsController) VnidStartMaster() error {
-	getNamespaces := func(registry *Registry) (interface{}, string, error) {
-		return registry.GetNamespaces()
-	}
-	result, err := oc.watchAndGetResource("Namespace", watchNamespaces, getNamespaces)
+	namespaces, _, err := oc.Registry.GetNamespaces()
 	if err != nil {
 		return err
 	}
-	namespaces := result.([]string)
-
 	// Handle existing namespaces without corresponding netnamespaces
 	netnsList, _, err := oc.Registry.GetNetNamespaces()
 	if err != nil {
@@ -38,13 +31,16 @@ func (oc *OvsController) VnidStartMaster() error {
 			}
 		}
 	}
+
+	go watchNamespaces(oc)
+
 	return nil
 }
 
-func watchNamespaces(oc *OvsController, ready chan<- bool, start <-chan string) {
+func watchNamespaces(oc *OvsController) {
 	nsevent := make(chan *api.NamespaceEvent)
 	stop := make(chan bool)
-	go oc.Registry.WatchNamespaces(nsevent, ready, start, stop)
+	go oc.Registry.WatchNamespaces(nsevent, stop)
 	for {
 		select {
 		case ev := <-nsevent:
@@ -71,45 +67,9 @@ func watchNamespaces(oc *OvsController, ready chan<- bool, start <-chan string) 
 }
 
 func (oc *OvsController) VnidStartNode() error {
-	getNetNamespaces := func(registry *Registry) (interface{}, string, error) {
-		return registry.GetNetNamespaces()
-	}
-	result, err := oc.watchAndGetResource("NetNamespace", watchNetNamespaces, getNetNamespaces)
-	if err != nil {
-		return err
-	}
-	nslist := result.([]api.NetNamespace)
-	for _, ns := range nslist {
-		oc.VNIDMap[ns.Name] = ns.NetID
-	}
-
-	getServices := func(registry *Registry) (interface{}, string, error) {
-		return registry.GetServices()
-	}
-	result, err = oc.watchAndGetResource("Service", watchServices, getServices)
-	if err != nil {
-		return err
-	}
-
-	services := result.([]api.Service)
-	for _, svc := range services {
-		netid, found := oc.VNIDMap[svc.Namespace]
-		if !found {
-			return fmt.Errorf("Error fetching Net ID for namespace: %s", svc.Namespace)
-		}
-		oc.services[svc.UID] = svc
-		for _, port := range svc.Ports {
-			oc.flowController.AddServiceOFRules(netid, svc.IP, port.Protocol, port.Port)
-		}
-	}
-
-	getPods := func(registry *Registry) (interface{}, string, error) {
-		return registry.GetPods()
-	}
-	_, err = oc.watchAndGetResource("Pod", watchPods, getPods)
-	if err != nil {
-		return err
-	}
+	go watchNetNamespaces(oc)
+	go watchServices(oc)
+	go watchPods(oc)
 
 	return nil
 }
@@ -141,13 +101,14 @@ func (oc *OvsController) updatePodNetwork(namespace string, netID, oldNetID uint
 	return nil
 }
 
-func watchNetNamespaces(oc *OvsController, ready chan<- bool, start <-chan string) {
+func watchNetNamespaces(oc *OvsController) {
 	stop := make(chan bool)
 	netNsEvent := make(chan *api.NetNamespaceEvent)
-	go oc.Registry.WatchNetNamespaces(netNsEvent, ready, start, stop)
+	go oc.Registry.WatchNetNamespaces(netNsEvent, stop)
 	for {
 		select {
 		case ev := <-netNsEvent:
+			// TODO(ravips): Fix this, found will be false
 			oldNetID, found := oc.VNIDMap[ev.Name]
 			if !found {
 				log.Errorf("Error fetching Net ID for namespace: %s, skipped netNsEvent: %v", ev.Name, ev)
@@ -178,10 +139,10 @@ func watchNetNamespaces(oc *OvsController, ready chan<- bool, start <-chan strin
 	}
 }
 
-func watchServices(oc *OvsController, ready chan<- bool, start <-chan string) {
+func watchServices(oc *OvsController) {
 	stop := make(chan bool)
 	svcevent := make(chan *api.ServiceEvent)
-	go oc.Registry.WatchServices(svcevent, ready, start, stop)
+	go oc.Registry.WatchServices(svcevent, stop)
 	for {
 		select {
 		case ev := <-svcevent:
@@ -232,9 +193,9 @@ func watchServices(oc *OvsController, ready chan<- bool, start <-chan string) {
 	}
 }
 
-func watchPods(oc *OvsController, ready chan<- bool, start <-chan string) {
+func watchPods(oc *OvsController) {
 	stop := make(chan bool)
-	go oc.Registry.WatchPods(ready, start, stop)
+	go oc.Registry.WatchPods(stop)
 
 	<-oc.sig
 	log.Error("Signal received. Stopping watching of pods.")
