@@ -325,8 +325,7 @@ func (registry *Registry) DeleteNetNamespace(name string) error {
 }
 
 func (registry *Registry) GetServicesForNamespace(namespace string) ([]osdnapi.Service, error) {
-	services, err := registry.getServices(namespace)
-	return services, err
+	return registry.getServices(namespace)
 }
 
 func (registry *Registry) GetServices() ([]osdnapi.Service, error) {
@@ -365,15 +364,12 @@ func (registry *Registry) WatchServices(receiver chan<- *osdnapi.ServiceEvent) e
 		}
 
 		switch eventType {
-		case watch.Added:
+		case watch.Added, watch.Modified:
 			oServ := newSDNService(kServ)
 			receiver <- &osdnapi.ServiceEvent{Type: osdnapi.Added, Service: oServ}
 		case watch.Deleted:
 			oServ := newSDNService(kServ)
 			receiver <- &osdnapi.ServiceEvent{Type: osdnapi.Deleted, Service: oServ}
-		case watch.Modified:
-			oServ := newSDNService(kServ)
-			receiver <- &osdnapi.ServiceEvent{Type: osdnapi.Modified, Service: oServ}
 		}
 	}
 }

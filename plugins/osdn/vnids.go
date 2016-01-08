@@ -1,6 +1,8 @@
 package osdn
 
 import (
+	"time"
+
 	log "github.com/golang/glog"
 
 	"github.com/openshift/openshift-sdn/plugins/osdn/api"
@@ -41,8 +43,8 @@ func watchNamespaces(oc *OvsController) {
 
 func (oc *OvsController) VnidStartNode() error {
 	go watchNetNamespaces(oc)
-	go watchServices(oc)
 	go watchPods(oc)
+	go watchServices(oc)
 
 	return nil
 }
@@ -102,17 +104,48 @@ func watchNetNamespaces(oc *OvsController) {
 	}
 }
 
+func isServiceChanged(oldsvc, newsvc api.Service) bool {
+	if len(oldsvc.Ports) == len(newsvc.Ports) {
+		for i := range oldsvc.Ports {
+			if oldsvc.Ports[i].Protocol != newsvc.Ports[i].Protocol ||
+				oldsvc.Ports[i].Port != newsvc.Ports[i].Port {
+				return true
+			}
+		}
+		return false
+	}
+	return true
+}
+
 func watchServices(oc *OvsController) {
 	svcevent := make(chan *api.ServiceEvent)
 	go oc.Registry.WatchServices(svcevent)
+
+	// Wait a little bit so that watchNetNamespaces() can populate VNID map
+	time.Sleep(5 * time.Second)
+
 	for {
 		ev := <-svcevent
 		netid, found := oc.VNIDMap[ev.Service.Namespace]
 		if !found {
-			log.Errorf("Error fetching Net ID for namespace: %s, skipped serviceEvent: %v", ev.Service.Namespace, ev)
+			netns, err := oc.Registry.GetNetNamespace(ev.Service.Namespace)
+			if err != nil {
+				log.Errorf("Error fetching Net ID for namespace: %s, skipped serviceEvent: %v", ev.Service.Namespace, ev)
+				continue
+			}
+			netid = netns.NetID
 		}
 		switch ev.Type {
 		case api.Added:
+			oldsvc, exists := oc.services[ev.Service.UID]
+			if exists {
+				if !isServiceChanged(oldsvc, ev.Service) {
+					continue
+				}
+				for _, port := range oldsvc.Ports {
+					oc.flowController.DelServiceOFRules(netid, oldsvc.IP, port.Protocol, port.Port)
+				}
+			}
 			oc.services[ev.Service.UID] = ev.Service
 			for _, port := range ev.Service.Ports {
 				oc.flowController.AddServiceOFRules(netid, ev.Service.IP, port.Protocol, port.Port)
@@ -121,29 +154,6 @@ func watchServices(oc *OvsController) {
 			delete(oc.services, ev.Service.UID)
 			for _, port := range ev.Service.Ports {
 				oc.flowController.DelServiceOFRules(netid, ev.Service.IP, port.Protocol, port.Port)
-			}
-		case api.Modified:
-			oldsvc, exists := oc.services[ev.Service.UID]
-			if exists && len(oldsvc.Ports) == len(ev.Service.Ports) {
-				same := true
-				for i := range oldsvc.Ports {
-					if oldsvc.Ports[i].Protocol != ev.Service.Ports[i].Protocol || oldsvc.Ports[i].Port != ev.Service.Ports[i].Port {
-						same = false
-						break
-					}
-				}
-				if same {
-					continue
-				}
-			}
-			if exists {
-				for _, port := range oldsvc.Ports {
-					oc.flowController.DelServiceOFRules(netid, oldsvc.IP, port.Protocol, port.Port)
-				}
-			}
-			oc.services[ev.Service.UID] = ev.Service
-			for _, port := range ev.Service.Ports {
-				oc.flowController.AddServiceOFRules(netid, ev.Service.IP, port.Protocol, port.Port)
 			}
 		}
 	}

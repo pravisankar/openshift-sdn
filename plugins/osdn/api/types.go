@@ -8,9 +8,8 @@ import (
 type EventType string
 
 const (
-	Added    EventType = "ADDED"
-	Deleted  EventType = "DELETED"
-	Modified EventType = "MODIFIED"
+	Added   EventType = "ADDED"
+	Deleted EventType = "DELETED"
 )
 
 type Subnet struct {
