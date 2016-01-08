@@ -79,28 +79,25 @@ func watchNetNamespaces(oc *OvsController) {
 	go oc.Registry.WatchNetNamespaces(netNsEvent)
 	for {
 		ev := <-netNsEvent
-		// TODO(ravips): Fix this, found will be false
 		oldNetID, found := oc.VNIDMap[ev.Name]
-		if !found {
-			log.Errorf("Error fetching Net ID for namespace: %s, skipped netNsEvent: %v", ev.Name, ev)
-		}
 		switch ev.Type {
 		case api.Added:
-			// Skip this event if the old and new network ids are same
-			if oldNetID == ev.NetID {
-				continue
-			}
 			oc.VNIDMap[ev.Name] = ev.NetID
-			err := oc.updatePodNetwork(ev.Name, ev.NetID, oldNetID)
-			if err != nil {
-				log.Errorf("Failed to update pod network for namespace '%s', error: %s", ev.Name, err)
+			// Skip this event if the old and new network ids are same
+			if found && (oldNetID != ev.NetID) {
+				err := oc.updatePodNetwork(ev.Name, ev.NetID, oldNetID)
+				if err != nil {
+					log.Errorf("Failed to update pod network for namespace '%s', error: %s", ev.Name, err)
+				}
 			}
 		case api.Deleted:
-			err := oc.updatePodNetwork(ev.Name, vnid.GlobalVNID, oldNetID)
-			if err != nil {
-				log.Errorf("Failed to update pod network for namespace '%s', error: %s", ev.Name, err)
-			}
 			delete(oc.VNIDMap, ev.Name)
+			if found && (oldNetID != vnid.GlobalVNID) {
+				err := oc.updatePodNetwork(ev.Name, vnid.GlobalVNID, oldNetID)
+				if err != nil {
+					log.Errorf("Failed to update pod network for namespace '%s', error: %s", ev.Name, err)
+				}
+			}
 		}
 	}
 }
