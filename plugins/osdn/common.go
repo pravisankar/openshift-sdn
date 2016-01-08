@@ -123,7 +123,7 @@ func (oc *OvsController) validateServiceNetwork(networkCIDR string, hostIPNets [
 		}
 	}
 
-	services, _, err := oc.Registry.GetServices()
+	services, err := oc.Registry.GetServices()
 	if err != nil {
 		return err
 	}
@@ -159,7 +159,7 @@ func (oc *OvsController) StartMaster(clusterNetworkCIDR string, clusterBitsPerSu
 	// to the given cluster network and service IPs belong to the given service network
 	if _, err := oc.Registry.GetClusterNetworkCIDR(); err != nil {
 		subrange := make([]string, 0)
-		subnets, _, err := oc.Registry.GetSubnets()
+		subnets, err := oc.Registry.GetSubnets()
 		if err != nil {
 			log.Errorf("Error in initializing/fetching subnets: %v", err)
 			return err

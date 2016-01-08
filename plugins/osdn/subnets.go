@@ -13,7 +13,7 @@ import (
 
 func (oc *OvsController) SubnetStartMaster(clusterNetworkCIDR string, clusterBitsPerSubnet uint, serviceNetworkCIDR string) error {
 	subrange := make([]string, 0)
-	subnets, _, err := oc.Registry.GetSubnets()
+	subnets, err := oc.Registry.GetSubnets()
 	if err != nil {
 		log.Errorf("Error in initializing/fetching subnets: %v", err)
 		return err

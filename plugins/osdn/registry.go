@@ -52,17 +52,17 @@ func NewRegistry(osClient *osclient.Client, kClient *kclient.Client) *Registry {
 	}
 }
 
-func (registry *Registry) GetSubnets() ([]osdnapi.Subnet, string, error) {
+func (registry *Registry) GetSubnets() ([]osdnapi.Subnet, error) {
 	hostSubnetList, err := registry.oClient.HostSubnets().List()
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	// convert HostSubnet to osdnapi.Subnet
 	subList := make([]osdnapi.Subnet, 0, len(hostSubnetList.Items))
 	for _, subnet := range hostSubnetList.Items {
 		subList = append(subList, osdnapi.Subnet{NodeIP: subnet.HostIP, SubnetCIDR: subnet.Subnet})
 	}
-	return subList, hostSubnetList.ListMeta.ResourceVersion, nil
+	return subList, nil
 }
 
 func (registry *Registry) GetSubnet(nodeName string) (*osdnapi.Subnet, error) {
@@ -123,22 +123,6 @@ func newSDNPod(kPod *kapi.Pod) osdnapi.Pod {
 	}
 }
 
-func (registry *Registry) GetPods() ([]osdnapi.Pod, string, error) {
-	kPodList, err := registry.kClient.Pods(kapi.NamespaceAll).List(labels.Everything(), fields.Everything())
-	if err != nil {
-		return nil, "", err
-	}
-
-	oPodList := make([]osdnapi.Pod, 0, len(kPodList.Items))
-	for _, kPod := range kPodList.Items {
-		if kPod.Status.PodIP != "" {
-			registry.namespaceOfPodIP[kPod.Status.PodIP] = kPod.ObjectMeta.Namespace
-		}
-		oPodList = append(oPodList, newSDNPod(&kPod))
-	}
-	return oPodList, kPodList.ListMeta.ResourceVersion, nil
-}
-
 func (registry *Registry) WatchPods() error {
 	eventQueue := registry.runEventQueue("Pods")
 
@@ -151,7 +135,9 @@ func (registry *Registry) WatchPods() error {
 
 		switch eventType {
 		case watch.Added, watch.Modified:
-			registry.namespaceOfPodIP[kPod.Status.PodIP] = kPod.ObjectMeta.Namespace
+			if kPod.Status.PodIP != "" {
+				registry.namespaceOfPodIP[kPod.Status.PodIP] = kPod.ObjectMeta.Namespace
+			}
 		case watch.Deleted:
 			delete(registry.namespaceOfPodIP, kPod.Status.PodIP)
 		}
@@ -173,29 +159,6 @@ func (registry *Registry) GetRunningPods(nodeName, namespace string) ([]osdnapi.
 		}
 	}
 	return pods, nil
-}
-
-func (registry *Registry) GetNodes() ([]osdnapi.Node, string, error) {
-	knodes, err := registry.kClient.Nodes().List(labels.Everything(), fields.Everything())
-	if err != nil {
-		return nil, "", err
-	}
-
-	nodes := make([]osdnapi.Node, 0, len(knodes.Items))
-	for _, node := range knodes.Items {
-		var nodeIP string
-		if len(node.Status.Addresses) > 0 {
-			nodeIP = node.Status.Addresses[0].Address
-		} else {
-			var err error
-			nodeIP, err = netutils.GetNodeIP(node.ObjectMeta.Name)
-			if err != nil {
-				return nil, "", err
-			}
-		}
-		nodes = append(nodes, osdnapi.Node{Name: node.ObjectMeta.Name, IP: nodeIP})
-	}
-	return nodes, knodes.ListMeta.ResourceVersion, nil
 }
 
 func (registry *Registry) getNodeAddressMap() (map[types.UID]string, error) {
@@ -301,16 +264,16 @@ func (registry *Registry) GetServicesNetworkCIDR() (string, error) {
 	return cn.ServiceNetwork, err
 }
 
-func (registry *Registry) GetNamespaces() ([]string, string, error) {
+func (registry *Registry) GetNamespaces() ([]string, error) {
 	namespaceList, err := registry.kClient.Namespaces().List(labels.Everything(), fields.Everything())
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	namespaces := make([]string, 0, len(namespaceList.Items))
 	for _, ns := range namespaceList.Items {
 		namespaces = append(namespaces, ns.Name)
 	}
-	return namespaces, namespaceList.ListMeta.ResourceVersion, nil
+	return namespaces, nil
 }
 
 func (registry *Registry) WatchNamespaces(receiver chan<- *osdnapi.NamespaceEvent) error {
@@ -353,17 +316,17 @@ func (registry *Registry) WatchNetNamespaces(receiver chan<- *osdnapi.NetNamespa
 	}
 }
 
-func (registry *Registry) GetNetNamespaces() ([]osdnapi.NetNamespace, string, error) {
+func (registry *Registry) GetNetNamespaces() ([]osdnapi.NetNamespace, error) {
 	netNamespaceList, err := registry.oClient.NetNamespaces().List()
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	// convert originapi.NetNamespace to osdnapi.NetNamespace
 	nsList := make([]osdnapi.NetNamespace, 0, len(netNamespaceList.Items))
 	for _, netns := range netNamespaceList.Items {
 		nsList = append(nsList, osdnapi.NetNamespace{Name: netns.Name, NetID: *netns.NetID})
 	}
-	return nsList, netNamespaceList.ListMeta.ResourceVersion, nil
+	return nsList, nil
 }
 
 func (registry *Registry) GetNetNamespace(name string) (osdnapi.NetNamespace, error) {
@@ -389,18 +352,18 @@ func (registry *Registry) DeleteNetNamespace(name string) error {
 }
 
 func (registry *Registry) GetServicesForNamespace(namespace string) ([]osdnapi.Service, error) {
-	services, _, err := registry.getServices(namespace)
+	services, err := registry.getServices(namespace)
 	return services, err
 }
 
-func (registry *Registry) GetServices() ([]osdnapi.Service, string, error) {
+func (registry *Registry) GetServices() ([]osdnapi.Service, error) {
 	return registry.getServices(kapi.NamespaceAll)
 }
 
-func (registry *Registry) getServices(namespace string) ([]osdnapi.Service, string, error) {
+func (registry *Registry) getServices(namespace string) ([]osdnapi.Service, error) {
 	kServList, err := registry.kClient.Services(namespace).List(labels.Everything(), fields.Everything())
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	oServList := make([]osdnapi.Service, 0, len(kServList.Items))
@@ -410,7 +373,7 @@ func (registry *Registry) getServices(namespace string) ([]osdnapi.Service, stri
 		}
 		oServList = append(oServList, newSDNService(&kService))
 	}
-	return oServList, kServList.ListMeta.ResourceVersion, nil
+	return oServList, nil
 }
 
 func (registry *Registry) WatchServices(receiver chan<- *osdnapi.ServiceEvent) error {

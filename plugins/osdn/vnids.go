@@ -9,12 +9,12 @@ import (
 )
 
 func (oc *OvsController) VnidStartMaster() error {
-	namespaces, _, err := oc.Registry.GetNamespaces()
+	namespaces, err := oc.Registry.GetNamespaces()
 	if err != nil {
 		return err
 	}
 	// Handle existing namespaces without corresponding netnamespaces
-	netnsList, _, err := oc.Registry.GetNetNamespaces()
+	netnsList, err := oc.Registry.GetNetNamespaces()
 	if err != nil {
 		return err
 	}
