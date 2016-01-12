@@ -34,7 +34,6 @@ type OvsController struct {
 	podNetworkReady chan struct{}
 	flowController  FlowController
 	VNIDMap         map[string]uint
-	services        map[string]api.Service
 }
 
 type FlowController interface {
@@ -73,7 +72,6 @@ func (oc *OvsController) BaseInit(registry *Registry, flowController FlowControl
 	oc.hostName = hostname
 	oc.VNIDMap = make(map[string]uint)
 	oc.podNetworkReady = make(chan struct{})
-	oc.services = make(map[string]api.Service)
 
 	return nil
 }

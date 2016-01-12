@@ -119,6 +119,7 @@ func isServiceChanged(oldsvc, newsvc api.Service) bool {
 
 func watchServices(oc *OvsController) {
 	svcevent := make(chan *api.ServiceEvent)
+	services := map[string]api.Service{}
 	go oc.Registry.WatchServices(svcevent)
 
 	// Wait a little bit so that watchNetNamespaces() can populate VNID map
@@ -137,7 +138,7 @@ func watchServices(oc *OvsController) {
 		}
 		switch ev.Type {
 		case api.Added:
-			oldsvc, exists := oc.services[ev.Service.UID]
+			oldsvc, exists := services[ev.Service.UID]
 			if exists {
 				if !isServiceChanged(oldsvc, ev.Service) {
 					continue
@@ -146,12 +147,12 @@ func watchServices(oc *OvsController) {
 					oc.flowController.DelServiceOFRules(netid, oldsvc.IP, port.Protocol, port.Port)
 				}
 			}
-			oc.services[ev.Service.UID] = ev.Service
+			services[ev.Service.UID] = ev.Service
 			for _, port := range ev.Service.Ports {
 				oc.flowController.AddServiceOFRules(netid, ev.Service.IP, port.Protocol, port.Port)
 			}
 		case api.Deleted:
-			delete(oc.services, ev.Service.UID)
+			delete(services, ev.Service.UID)
 			for _, port := range ev.Service.Ports {
 				oc.flowController.DelServiceOFRules(netid, ev.Service.IP, port.Protocol, port.Port)
 			}
