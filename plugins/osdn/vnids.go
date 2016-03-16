@@ -10,50 +10,6 @@ import (
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/container"
 )
 
-func (oc *OvsController) VnidStartMaster() error {
-	getNamespaces := func(registry *Registry) (interface{}, string, error) {
-		return registry.GetNamespaces()
-	}
-	_, err := oc.watchAndGetResource("Namespace", watchNamespaces, getNamespaces)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func watchNamespaces(oc *OvsController, ready chan<- bool, start <-chan string) {
-	nsevent := make(chan *api.NamespaceEvent)
-	stop := make(chan bool)
-	go oc.Registry.WatchNamespaces(nsevent, ready, start, stop)
-	for {
-		select {
-		case ev := <-nsevent:
-			switch ev.Type {
-			case api.Added:
-				_, err := oc.Registry.GetNetNamespace(ev.Name)
-				if err == nil {
-					continue
-				}
-				err = oc.Registry.CreateNetNamespace(ev.Name)
-				if err != nil {
-					log.Errorf("Error creating NetNamespace: %v", err)
-					continue
-				}
-			case api.Deleted:
-				err := oc.Registry.DeleteNetNamespace(ev.Name)
-				if err != nil {
-					log.Errorf("Error deleting NetNamespace: %v", err)
-					continue
-				}
-			}
-		case <-oc.sig:
-			log.Error("Signal received. Stopping watching of nodes.")
-			stop <- true
-			return
-		}
-	}
-}
-
 func (oc *OvsController) VnidStartNode() error {
 	getNetNamespaces := func(registry *Registry) (interface{}, string, error) {
 		return registry.GetNetNamespaces()

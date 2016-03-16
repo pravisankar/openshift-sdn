@@ -344,40 +344,6 @@ func (registry *Registry) GetServicesNetwork() (*net.IPNet, error) {
 	return registry.serviceNetwork, nil
 }
 
-func (registry *Registry) GetNamespaces() ([]string, string, error) {
-	namespaceList, err := registry.kClient.Namespaces().List(kapi.ListOptions{})
-	if err != nil {
-		return nil, "", err
-	}
-	namespaces := make([]string, 0, len(namespaceList.Items))
-	for _, ns := range namespaceList.Items {
-		namespaces = append(namespaces, ns.Name)
-	}
-	return namespaces, namespaceList.ListMeta.ResourceVersion, nil
-}
-
-func (registry *Registry) WatchNamespaces(receiver chan<- *osdnapi.NamespaceEvent, ready chan<- bool, start <-chan string, stop <-chan bool) error {
-	eventQueue, startVersion := registry.createAndRunEventQueue("Namespace", ready, start)
-
-	checkCondition := true
-	for {
-		eventType, obj, err := getEvent(eventQueue, startVersion, &checkCondition)
-		if err != nil {
-			return err
-		}
-		ns := obj.(*kapi.Namespace)
-
-		switch eventType {
-		case watch.Added:
-			receiver <- &osdnapi.NamespaceEvent{Type: osdnapi.Added, Name: ns.ObjectMeta.Name}
-		case watch.Deleted:
-			receiver <- &osdnapi.NamespaceEvent{Type: osdnapi.Deleted, Name: ns.ObjectMeta.Name}
-		case watch.Modified:
-			// Ignore, we don't need to update SDN in case of namespace updates
-		}
-	}
-}
-
 func (registry *Registry) WatchNetNamespaces(receiver chan<- *osdnapi.NetNamespaceEvent, ready chan<- bool, start <-chan string, stop <-chan bool) error {
 	eventQueue, startVersion := registry.createAndRunEventQueue("NetNamespace", ready, start)
 
@@ -417,20 +383,6 @@ func (registry *Registry) GetNetNamespace(name string) (osdnapi.NetNamespace, er
 		return osdnapi.NetNamespace{}, err
 	}
 	return osdnapi.NetNamespace{Name: netns.Name, NetID: *netns.NetID}, nil
-}
-
-func (registry *Registry) CreateNetNamespace(name string) error {
-	netns := &originapi.NetNamespace{
-		TypeMeta:   unversioned.TypeMeta{Kind: "NetNamespace"},
-		ObjectMeta: kapi.ObjectMeta{Name: name},
-		NetName:    name,
-	}
-	_, err := registry.oClient.NetNamespaces().Create(netns)
-	return err
-}
-
-func (registry *Registry) DeleteNetNamespace(name string) error {
-	return registry.oClient.NetNamespaces().Delete(name)
 }
 
 func (registry *Registry) GetServicesForNamespace(namespace string) ([]osdnapi.Service, error) {
@@ -524,14 +476,6 @@ func (registry *Registry) runEventQueue(resourceName string) (*oscache.EventQueu
 		}
 		lw.WatchFunc = func(options kapi.ListOptions) (watch.Interface, error) {
 			return registry.kClient.Nodes().Watch(options)
-		}
-	case "namespace":
-		expectedType = &kapi.Namespace{}
-		lw.ListFunc = func(options kapi.ListOptions) (runtime.Object, error) {
-			return registry.kClient.Namespaces().List(options)
-		}
-		lw.WatchFunc = func(options kapi.ListOptions) (watch.Interface, error) {
-			return registry.kClient.Namespaces().Watch(options)
 		}
 	case "netnamespace":
 		expectedType = &originapi.NetNamespace{}

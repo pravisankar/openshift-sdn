@@ -45,11 +45,6 @@ type NetNamespaceEvent struct {
 	NetID uint
 }
 
-type NamespaceEvent struct {
-	Type EventType
-	Name string
-}
-
 type ServiceProtocol string
 
 const (
