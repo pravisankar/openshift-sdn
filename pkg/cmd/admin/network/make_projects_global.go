@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	kapi "k8s.io/kubernetes/pkg/api"
 	kcmdutil "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	kerrors "k8s.io/kubernetes/pkg/util/errors"
 
@@ -64,16 +65,17 @@ func NewCmdMakeGlobalProjectsNetwork(commandName, fullName string, f *clientcmd.
 }
 
 func (m *MakeGlobalOptions) Run() error {
-	projects, err := m.Options.GetProjects()
+	namespacesInfo, err := m.Options.GetNamespacesInfo()
 	if err != nil {
 		return err
 	}
 
 	errList := []error{}
-	for _, project := range projects {
-		err = m.Options.CreateOrUpdateNetNamespace(project.ObjectMeta.Name, globalVNID)
+	for _, info := range namespacesInfo {
+		err = m.Options.UpdateNamespace(info, globalVNID)
 		if err != nil {
-			errList = append(errList, fmt.Errorf("Removing network isolation for project '%s' failed, error: %v", project.ObjectMeta.Name, err))
+			ns, _ := info.Object.(*kapi.Namespace)
+			errList = append(errList, fmt.Errorf("Removing network isolation for project '%s' failed, error: %v", ns.ObjectMeta.Name, err))
 		}
 	}
 	return kerrors.NewAggregate(errList)
