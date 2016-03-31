@@ -16,6 +16,7 @@ import (
 	"k8s.io/kubernetes/pkg/api/resource"
 	kubeletTypes "k8s.io/kubernetes/pkg/kubelet/container"
 	knetwork "k8s.io/kubernetes/pkg/kubelet/network"
+	"k8s.io/kubernetes/pkg/storage"
 	utilsets "k8s.io/kubernetes/pkg/util/sets"
 )
 
@@ -34,10 +35,10 @@ type ovsPlugin struct {
 	multitenant bool
 }
 
-func CreatePlugin(registry *osdn.Registry, multitenant bool, hostname string, selfIP string) (api.OsdnPlugin, error) {
+func CreatePlugin(registry *osdn.Registry, etcdHelper storage.Interface, multitenant bool, hostname string, selfIP string) (api.OsdnPlugin, error) {
 	plugin := &ovsPlugin{multitenant: multitenant}
 
-	err := plugin.BaseInit(registry, plugin, multitenant, hostname, selfIP)
+	err := plugin.BaseInit(registry, plugin, etcdHelper, multitenant, hostname, selfIP)
 	if err != nil {
 		return nil, err
 	}

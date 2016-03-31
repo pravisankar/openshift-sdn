@@ -14,6 +14,7 @@ import (
 
 	kapi "k8s.io/kubernetes/pkg/api"
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/container"
+	"k8s.io/kubernetes/pkg/storage"
 	utildbus "k8s.io/kubernetes/pkg/util/dbus"
 	kerrors "k8s.io/kubernetes/pkg/util/errors"
 	kexec "k8s.io/kubernetes/pkg/util/exec"
@@ -46,11 +47,11 @@ type OsdnController struct {
 	podNetworkReady chan struct{}
 	vnidMap         map[string]uint
 	vnidLock        sync.Mutex
+	EtcdHelper      storage.Interface
 }
 
 // Called by plug factory functions to initialize the generic plugin instance
-func (oc *OsdnController) BaseInit(registry *Registry, pluginHooks PluginHooks, multitenant bool, hostname string, selfIP string) error {
-
+func (oc *OsdnController) BaseInit(registry *Registry, pluginHooks PluginHooks, etcdHelper storage.Interface, multitenant bool, hostname string, selfIP string) error {
 	log.Infof("Starting with configured hostname '%s' (IP '%s')", hostname, selfIP)
 
 	if hostname == "" {
@@ -85,6 +86,7 @@ func (oc *OsdnController) BaseInit(registry *Registry, pluginHooks PluginHooks, 
 	oc.HostName = hostname
 	oc.vnidMap = make(map[string]uint)
 	oc.podNetworkReady = make(chan struct{})
+	oc.EtcdHelper = etcdHelper
 
 	return nil
 }
