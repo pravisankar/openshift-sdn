@@ -9,14 +9,57 @@ import (
 
 	kapi "k8s.io/kubernetes/pkg/api"
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/container"
+	"k8s.io/kubernetes/pkg/registry/service/allocator"
+	etcdallocator "k8s.io/kubernetes/pkg/registry/service/allocator/etcd"
+	"k8s.io/kubernetes/pkg/util"
 	kerrors "k8s.io/kubernetes/pkg/util/errors"
 	utilruntime "k8s.io/kubernetes/pkg/util/runtime"
-	"k8s.io/kubernetes/pkg/util/sets"
 	utilwait "k8s.io/kubernetes/pkg/util/wait"
 	"k8s.io/kubernetes/pkg/watch"
 
 	"github.com/openshift/openshift-sdn/pkg/netid"
+	vnidcontroller "github.com/openshift/openshift-sdn/plugins/osdn/netid/controller"
+	"github.com/openshift/openshift-sdn/plugins/osdn/netid/vnid"
+	"github.com/openshift/openshift-sdn/plugins/osdn/netid/vnidallocator"
+	"github.com/openshift/origin/pkg/sdn/registry/netnamespace"
 )
+
+func (oc *OsdnController) VnidStartMaster() error {
+	netIDRange, err := vnid.NewVNIDRange(netid.MinVNID, netid.MaxVNID-netid.MinVNID+1)
+	if err != nil {
+		return fmt.Errorf("Unable to create NetID range: %v", err)
+	}
+
+	var etcdAlloc *etcdallocator.Etcd
+	netIDAllocator := vnidallocator.New(netIDRange, func(max int, rangeSpec string) allocator.Interface {
+		mem := allocator.NewContiguousAllocationMap(max, rangeSpec)
+		etcdAlloc = etcdallocator.NewEtcd(mem, "/ranges/namespacevnids", kapi.Resource("namespacevnidallocation"), oc.EtcdHelper)
+		return etcdAlloc
+	})
+
+	_, kclient := oc.Registry.GetSDNClients()
+
+	// Run vnid migration
+	migrate := netnamespace.NewMigrate(oc.EtcdHelper, kclient.Namespaces())
+	if err := migrate.Run(); err != nil {
+		return fmt.Errorf("Unable to migrate network namespaces: %v, please retry", err)
+	}
+
+	// Run vnid repair controller
+	repair := vnidcontroller.NewRepair(15*time.Minute, kclient.Namespaces(), netIDRange, etcdAlloc)
+	if err := repair.RunOnce(); err != nil {
+		return fmt.Errorf("Unable to initialize net ID allocation for all namespaces: %v", err)
+	}
+	runner := util.NewRunner(repair.RunUntil)
+	runner.Start()
+
+	// Run vnid controller
+	factory := vnidcontroller.NewVnidController(netIDAllocator, kclient.Namespaces(), []string{kapi.NamespaceDefault})
+	controller := factory.Create()
+	controller.Run()
+
+	return nil
+}
 
 func (oc *OsdnController) GetVNID(name string) (uint, error) {
 	oc.vnidLock.Lock()
