@@ -14,7 +14,6 @@ import (
 	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/kubernetes/pkg/labels"
 	pconfig "k8s.io/kubernetes/pkg/proxy/config"
-	"k8s.io/kubernetes/pkg/watch"
 
 	osclient "github.com/openshift/origin/pkg/client"
 	oscache "github.com/openshift/origin/pkg/client/cache"
@@ -87,28 +86,9 @@ func (registry *Registry) PopulatePodsByIP() error {
 	}
 
 	for _, pod := range podList.Items {
-		registry.trackPod(&pod)
+		registry.TrackPod(&pod)
 	}
 	return nil
-}
-
-func (registry *Registry) WatchPods() error {
-	eventQueue := registry.RunEventQueue(Pods)
-
-	for {
-		eventType, obj, err := eventQueue.Pop()
-		if err != nil {
-			return err
-		}
-		pod := obj.(*kapi.Pod)
-
-		switch eventType {
-		case watch.Added, watch.Modified:
-			registry.trackPod(pod)
-		case watch.Deleted:
-			registry.unTrackPod(pod)
-		}
-	}
 }
 
 func (registry *Registry) GetRunningPods(nodeName, namespace string) ([]kapi.Pod, error) {
@@ -349,7 +329,7 @@ EndpointLoop:
 	registry.baseEndpointsHandler.OnEndpointsUpdate(filteredEndpoints)
 }
 
-func (registry *Registry) trackPod(pod *kapi.Pod) {
+func (registry *Registry) TrackPod(pod *kapi.Pod) {
 	if pod.Status.PodIP == "" {
 		return
 	}
@@ -371,13 +351,13 @@ func (registry *Registry) trackPod(pod *kapi.Pod) {
 	} else if ok && podInfo.UID == pod.UID {
 		// If the UIDs match, then this pod is moving to a state that indicates it is not running
 		// so we need to remove it from the cache
-		registry.unTrackPod(pod)
+		registry.UnTrackPod(pod)
 	}
 
 	return
 }
 
-func (registry *Registry) unTrackPod(pod *kapi.Pod) {
+func (registry *Registry) UnTrackPod(pod *kapi.Pod) {
 	// Only delete if the pod ID is the one we are tracking (in case there is a failed or complete
 	// pod lying around that gets deleted while there is a running pod with the same IP)
 	if podInfo, ok := registry.podsByIP[pod.Status.PodIP]; ok && podInfo.UID == pod.UID {
