@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	log "github.com/golang/glog"
 
@@ -283,7 +284,9 @@ func (registry *Registry) RunEventQueue(resourceName ResourceName) *oscache.Even
 
 	lw := cache.NewListWatchFromClient(client, strings.ToLower(string(resourceName)), kapi.NamespaceAll, fields.Everything())
 	eventQueue := oscache.NewEventQueue(cache.MetaNamespaceKeyFunc)
-	cache.NewReflector(lw, expectedType, eventQueue, 0).Run()
+	// Repopulate event queue every 30 mins
+	// Existing items in the event queue will have watch.Modified event type
+	cache.NewReflector(lw, expectedType, eventQueue, 30*time.Minute).Run()
 	return eventQueue
 }
 

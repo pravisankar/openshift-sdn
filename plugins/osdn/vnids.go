@@ -324,8 +324,11 @@ func (oc *OsdnController) watchNetNamespaces() {
 			err = oc.updatePodNetwork(netns.NetName, netns.NetID)
 			if err != nil {
 				log.Errorf("Failed to update pod network for namespace '%s', error: %s", netns.NetName, err)
+				oc.setVNID(netns.NetName, oldNetID)
+				continue
 			}
 		case watch.Deleted:
+			// updatePodNetwork needs vnid, so unset vnid after this call
 			err := oc.updatePodNetwork(netns.NetName, AdminVNID)
 			if err != nil {
 				log.Errorf("Failed to update pod network for namespace '%s', error: %s", netns.NetName, err)
@@ -367,12 +370,6 @@ func (oc *OsdnController) watchServices() {
 
 		switch eventType {
 		case watch.Added, watch.Modified:
-			netid, err := oc.GetVNID(serv.Namespace, true)
-			if err != nil {
-				log.Errorf("Skipped serviceEvent: %v, Error: %v", eventType, err)
-				continue
-			}
-
 			oldsvc, exists := services[string(serv.UID)]
 			if exists {
 				if !isServiceChanged(oldsvc, serv) {
@@ -380,8 +377,15 @@ func (oc *OsdnController) watchServices() {
 				}
 				oc.pluginHooks.DeleteServiceRules(oldsvc)
 			}
-			services[string(serv.UID)] = serv
+
+			netid, err := oc.GetVNID(serv.Namespace, true)
+			if err != nil {
+				log.Errorf("Skipped adding service rules for serviceEvent: %v, Error: %v", eventType, err)
+				continue
+			}
+
 			oc.pluginHooks.AddServiceRules(serv, netid)
+			services[string(serv.UID)] = serv
 		case watch.Deleted:
 			delete(services, string(serv.UID))
 			oc.pluginHooks.DeleteServiceRules(serv)

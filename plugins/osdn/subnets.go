@@ -188,13 +188,13 @@ func (oc *OsdnController) watchNodes() {
 			if oldNodeIP, ok := nodeAddressMap[uid]; ok && (oldNodeIP == nodeIP) {
 				continue
 			}
-			nodeAddressMap[uid] = nodeIP
 
 			err = oc.addNode(name, nodeIP)
 			if err != nil {
 				log.Errorf("Error creating subnet for node %s, ip %s: %v", name, nodeIP, err)
 				continue
 			}
+			nodeAddressMap[uid] = nodeIP
 		case watch.Deleted:
 			delete(nodeAddressMap, uid)
 
@@ -209,6 +209,7 @@ func (oc *OsdnController) watchNodes() {
 
 // Only run on the nodes
 func (oc *OsdnController) watchSubnets() {
+	subnets := make(map[string]*osapi.HostSubnet)
 	eventQueue := oc.Registry.RunEventQueue(HostSubnets)
 
 	for {
@@ -224,12 +225,19 @@ func (oc *OsdnController) watchSubnets() {
 		}
 		switch eventType {
 		case watch.Added, watch.Modified:
+			oldSubnet, exists := subnets[string(hs.UID)]
+			if exists && (oldSubnet.HostIP == hs.HostIP) {
+				continue
+			}
 			if err := oc.validateNode(hs.HostIP); err != nil {
 				log.Errorf("Ignoring invalid subnet for node %s: %v", hs.HostIP, err)
 				continue
 			}
+
 			oc.pluginHooks.AddHostSubnetRules(hs)
+			subnets[string(hs.UID)] = hs
 		case watch.Deleted:
+			delete(subnets, string(hs.UID))
 			oc.pluginHooks.DeleteHostSubnetRules(hs)
 		}
 	}
