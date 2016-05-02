@@ -18,6 +18,7 @@ import (
 
 	"github.com/openshift/openshift-sdn/pkg/netid"
 	vnidcontroller "github.com/openshift/openshift-sdn/plugins/osdn/netid/controller"
+	"github.com/openshift/openshift-sdn/plugins/osdn/netid/migration"
 	"github.com/openshift/openshift-sdn/plugins/osdn/netid/vnid"
 	"github.com/openshift/openshift-sdn/plugins/osdn/netid/vnidallocator"
 )
@@ -36,6 +37,12 @@ func (oc *OsdnController) VnidStartMaster() error {
 	})
 
 	_, kclient := oc.Registry.GetSDNClients()
+
+	// Run vnid migration
+	migrate := migration.NewMigrate(oc.EtcdHelper, kclient.Namespaces())
+	if err := migrate.Run(); err != nil {
+		return fmt.Errorf("Unable to migrate network namespaces: %v", err)
+	}
 
 	// Run vnid repair controller
 	repair := vnidcontroller.NewRepair(15*time.Minute, kclient.Namespaces(), netIDRange, etcdAlloc)
