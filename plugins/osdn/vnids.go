@@ -7,6 +7,7 @@ import (
 	log "github.com/golang/glog"
 
 	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/errors"
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/container"
 	"k8s.io/kubernetes/pkg/registry/service/allocator"
 	etcdallocator "k8s.io/kubernetes/pkg/registry/service/allocator/etcd"
@@ -280,4 +281,29 @@ func (oc *OsdnController) watchServices() {
 			}
 		}
 	}
+}
+
+func (oc *OsdnController) VnidCleanup() error {
+	nsList, err := oc.Registry.GetNamespaces()
+	if err != nil {
+		return err
+	}
+
+	errList := []error{}
+	for _, ns := range nsList {
+		_, err := netid.GetVNID(&ns)
+		if err == netid.ErrorVNIDNotFound {
+			continue
+		}
+		netid.DeleteVNID(&ns)
+
+		_, err = oc.Registry.UpdateNamespace(&ns)
+		if errors.IsNotFound(err) {
+			continue
+		}
+		if err != nil {
+			errList = append(errList, err)
+		}
+	}
+	return kerrors.NewAggregate(errList)
 }

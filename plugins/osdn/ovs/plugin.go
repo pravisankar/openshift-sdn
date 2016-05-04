@@ -55,6 +55,12 @@ func (plugin *ovsPlugin) PluginStartMaster(clusterNetwork *net.IPNet, hostSubnet
 		if err := plugin.VnidStartMaster(); err != nil {
 			return err
 		}
+	} else {
+		// Network plugin may be switched from multi-tenant to single-tenant
+		// Delete VNID annotations on the namespaces if needed
+		if err := plugin.VnidCleanup(); err != nil {
+			glog.Errorf("Failed to remove vnid annotations on namespaces: %v", err)
+		}
 	}
 	return nil
 }

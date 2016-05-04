@@ -133,6 +133,10 @@ func (registry *Registry) GetNamespaces() ([]kapi.Namespace, error) {
 	return nsList.Items, nil
 }
 
+func (registry *Registry) UpdateNamespace(ns *kapi.Namespace) (*kapi.Namespace, error) {
+	return registry.kClient.Namespaces().Update(ns)
+}
+
 func (registry *Registry) UpdateClusterNetwork(clusterNetwork *net.IPNet, subnetLength int, serviceNetwork *net.IPNet) error {
 	cn, err := registry.oClient.ClusterNetwork().Get("default")
 	if err != nil {
