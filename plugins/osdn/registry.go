@@ -42,6 +42,8 @@ const (
 	Services    ResourceName = "Services"
 	HostSubnets ResourceName = "HostSubnets"
 	Pods        ResourceName = "Pods"
+
+	NetNamespaces ResourceName = "NetNamespaces"
 )
 
 func NewRegistry(osClient *osclient.Client, kClient *kclient.Client) *Registry {
@@ -252,6 +254,9 @@ func (registry *Registry) RunEventQueue(resourceName ResourceName) *oscache.Even
 	case Pods:
 		expectedType = &kapi.Pod{}
 		client = registry.kClient
+	case NetNamespaces:
+		expectedType = &osapi.NetNamespace{}
+		client = registry.oClient
 	default:
 		log.Fatalf("Unknown resource %s during initialization of event queue", resourceName)
 	}

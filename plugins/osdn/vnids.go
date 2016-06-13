@@ -21,6 +21,7 @@ import (
 	vnidcontroller "github.com/openshift/openshift-sdn/plugins/osdn/netid/controller"
 	"github.com/openshift/openshift-sdn/plugins/osdn/netid/vnid"
 	"github.com/openshift/openshift-sdn/plugins/osdn/netid/vnidallocator"
+	"github.com/openshift/origin/pkg/sdn/api"
 	"github.com/openshift/origin/pkg/sdn/registry/netnamespace"
 )
 
@@ -143,6 +144,10 @@ func (oc *OsdnController) VnidStartNode() error {
 
 	go utilwait.Forever(oc.watchNamespaces, 0)
 	go utilwait.Forever(oc.watchServices, 0)
+
+	// Support migration: When nodes are upgraded, this will ensure we don't miss
+	// any NetNamespace events until master is upgraded.
+	go oc.watchNetNamespaces()
 	return nil
 }
 
@@ -281,6 +286,50 @@ func (oc *OsdnController) watchServices() {
 			if err := oc.pluginHooks.DeleteServiceRules(serv); err != nil {
 				log.Error(err)
 			}
+		}
+	}
+}
+
+func (oc *OsdnController) watchNetNamespaces() {
+	eventQueue := oc.Registry.RunEventQueue(NetNamespaces)
+
+	for {
+		eventType, obj, err := eventQueue.Pop()
+		if err != nil {
+			log.Errorf("EventQueue failed for network namespaces: %v", err)
+			return
+		}
+		netns := obj.(*api.NetNamespace)
+		if netnamespace.IsNetNamespaceMigrated(netns) {
+			// Master is upgraded, we don't need to watch NetNamespace any more.
+			return
+		}
+		name := netns.NetName
+		netID := netns.NetID
+
+		log.V(5).Infof("Watch %s event for NetNamespace %q", strings.Title(string(eventType)), name)
+		switch eventType {
+		case watch.Added, watch.Modified:
+			// Skip this event if the old and new network ids are same
+			oldNetID, err := oc.GetVNID(name)
+			if (err == nil) && (oldNetID == netID) {
+				continue
+			}
+			oc.setVNID(name, netID)
+
+			err = oc.updatePodNetwork(name, netID)
+			if err != nil {
+				log.Errorf("Failed to update pod network for namespace '%s', error: %v", name, err)
+				oc.setVNID(name, oldNetID)
+				continue
+			}
+		case watch.Deleted:
+			// updatePodNetwork needs netid, so unset netid after this call
+			err := oc.updatePodNetwork(name, netid.GlobalVNID)
+			if err != nil {
+				log.Errorf("Failed to update pod network for namespace '%s', error: %v", name, err)
+			}
+			oc.unSetVNID(name)
 		}
 	}
 }
